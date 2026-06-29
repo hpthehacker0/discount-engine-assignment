@@ -6,7 +6,7 @@
  * internal data shapes.
  *
  * Expected rules.csv columns:
- *   rule_id, scope, applies_to, type, value, stackable
+ *   rule_id, scope, applies_to, type, value, stackable, min_cart_value
  *
  * Expected cart.csv columns:
  *   item_id, product, brand, platform, base_price
@@ -17,16 +17,27 @@ import Papa from 'papaparse'
 /**
  * Parses the raw text of rules.csv into an array of DiscountRule objects.
  * Returns { data, errors } where errors is an array of row-level issues.
+ *
+ * Supports three scopes:
+ *   - "brand"    → appliesTo = brand name, no minCartValue
+ *   - "platform" → appliesTo = platform name, no minCartValue
+ *   - "cart"     → appliesTo = "" (whole cart), minCartValue = number
  */
 export function parseRulesCSV(csvText) {
-  const { data: rows, errors: parseErrors } = Papa.parse(csvText.trim(), {
+const { data: rows, errors: parseErrors } = Papa.parse(csvText.trim(), {
     header: true,
     skipEmptyLines: true,
     transformHeader: (h) => h.trim().toLowerCase().replace(/\s+/g, '_'),
   })
 
-  if (parseErrors.length > 0) {
-    return { data: [], errors: parseErrors.map((e) => e.message) }
+  // Filter out "TooFewFields" errors — these are caused by rows where the
+  // optional trailing column (min_cart_value) is omitted. PapaParse counts
+  // RULE-04's double-comma as setting the expected column count to 7, then
+  // flags rows 1–3 that have no trailing value. This is harmless: the missing
+  // field simply comes back as undefined, which we handle below as null.
+  const fatalErrors = parseErrors.filter((e) => e.code !== 'TooFewFields')
+  if (fatalErrors.length > 0) {
+    return { data: [], errors: fatalErrors.map((e) => e.message) }
   }
 
   const data = []
@@ -38,7 +49,6 @@ export function parseRulesCSV(csvText) {
 
     if (!row.rule_id) missing.push('rule_id')
     if (!row.scope) missing.push('scope')
-    if (!row.applies_to) missing.push('applies_to')
     if (!row.type) missing.push('type')
     if (row.value === undefined || row.value === '') missing.push('value')
     if (row.stackable === undefined || row.stackable === '') missing.push('stackable')
@@ -49,8 +59,14 @@ export function parseRulesCSV(csvText) {
     }
 
     const scope = row.scope.trim().toLowerCase()
-    if (scope !== 'brand' && scope !== 'platform') {
-      errors.push(`Row ${rowNum}: scope must be "brand" or "platform", got "${row.scope}"`)
+    if (scope !== 'brand' && scope !== 'platform' && scope !== 'cart') {
+      errors.push(`Row ${rowNum}: scope must be "brand", "platform", or "cart", got "${row.scope}"`)
+      return
+    }
+
+    // brand/platform rules require applies_to; cart rules do not
+    if ((scope === 'brand' || scope === 'platform') && !row.applies_to) {
+      errors.push(`Row ${rowNum}: applies_to is required for scope "${scope}"`)
       return
     }
 
@@ -69,13 +85,25 @@ export function parseRulesCSV(csvText) {
     const stackableStr = row.stackable.trim().toLowerCase()
     const stackable = stackableStr === 'true' || stackableStr === '1' || stackableStr === 'yes'
 
+    // Parse min_cart_value — required for cart scope, ignored for others
+    let minCartValue = null
+    if (scope === 'cart') {
+      const mcv = parseFloat(row.min_cart_value)
+      if (isNaN(mcv) || mcv <= 0) {
+        errors.push(`Row ${rowNum}: cart rule requires a valid min_cart_value, got "${row.min_cart_value}"`)
+        return
+      }
+      minCartValue = mcv
+    }
+
     data.push({
       ruleId: row.rule_id.trim(),
       scope,
-      appliesTo: row.applies_to.trim(),
+      appliesTo: scope === 'cart' ? '' : row.applies_to.trim(),
       type,
       value,
       stackable,
+      minCartValue, // null for brand/platform rules
     })
   })
 

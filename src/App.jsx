@@ -10,21 +10,22 @@ import CsvUploader from './components/CsvUploader.jsx'
 import DataTable from './components/DataTable.jsx'
 import ErrorBanner from './components/ErrorBanner.jsx'
 import { parseRulesCSV, parseCartCSV } from './engine/csvParser.js'
-import { processCart, cartTotal } from './engine/discountEngine.js'
+import { processCart, applyCartDiscount } from './engine/discountEngine.js'
 
 // ── Column definitions ───────────────────────────────────────────
 
 const RULES_COLUMNS = [
   { key: 'ruleId',    label: 'Rule ID' },
   { key: 'scope',     label: 'Scope',      render: (v) => v.charAt(0).toUpperCase() + v.slice(1) },
-  { key: 'appliesTo', label: 'Applies To' },
+  { key: 'appliesTo', label: 'Applies To', render: (v) => v || '—' },
   { key: 'type',      label: 'Type',       render: (v) => v.charAt(0).toUpperCase() + v.slice(1) },
   {
     key: 'value',
     label: 'Value',
     render: (v, row) => row.type === 'percentage' ? `${v}% off` : `Rs.${v} off`,
   },
-  { key: 'stackable', label: 'Stackable',  render: (v) => (v ? 'Yes' : 'No') },
+  { key: 'stackable',    label: 'Stackable',      render: (v) => (v ? 'Yes' : 'No') },
+  { key: 'minCartValue', label: 'Min Cart Value',  render: (v) => v ? `Rs.${v.toLocaleString('en-IN')}` : '—' },
 ]
 
 const CART_COLUMNS = [
@@ -96,10 +97,13 @@ const S = {
   },
   totalLabel: { fontWeight: 700, fontSize: 14, color: '#131A48' },
   totalValue: { fontWeight: 700, fontSize: 16, color: '#131A48' },
-  tag: (color, bg) => ({
-    display: 'inline-block', fontSize: 10, fontWeight: 700, padding: '1px 6px',
-    borderRadius: 20, background: bg, color, textTransform: 'uppercase', letterSpacing: '0.04em',
-  }),
+  cartOfferRow: {
+    display: 'flex', justifyContent: 'flex-end', alignItems: 'center',
+    gap: '1rem', marginTop: '0.5rem', paddingTop: '0.5rem',
+    borderTop: '1px dashed #CECECE',
+  },
+  cartOfferLabel: { fontSize: 13, color: '#1e5c2c', fontWeight: 600 },
+  cartOfferValue: { fontSize: 13, color: '#1e5c2c', fontWeight: 700 },
 }
 
 // ── Component ────────────────────────────────────────────────────
@@ -114,6 +118,7 @@ export default function App() {
   const [cartFileName, setCartFileName]   = useState('')
 
   const [results, setResults]       = useState(null)
+  const [cartOffer, setCartOffer]   = useState(null)
 
   // ── Handlers ──
 
@@ -122,7 +127,8 @@ export default function App() {
     setRules(data)
     setRulesErr(errors)
     setRulesFileName(fileName)
-    setResults(null) // clear stale results
+    setResults(null)
+    setCartOffer(null)
   }
 
   function handleCartLoad(csvText, fileName) {
@@ -131,11 +137,14 @@ export default function App() {
     setCartErrors(errors)
     setCartFileName(fileName)
     setResults(null)
+    setCartOffer(null)
   }
 
   function handleCalculate() {
     const res = processCart(cartItems, rules)
+    const offer = applyCartDiscount(res, rules)
     setResults(res)
+    setCartOffer(offer)
   }
 
   const canCalculate = rules.length > 0 && cartItems.length > 0
@@ -218,10 +227,36 @@ export default function App() {
           <div style={S.section}>
             <div style={S.sectionTitle}>Cart Summary</div>
             <DataTable columns={RESULTS_COLUMNS} rows={results} />
+
+{/* Subtotal row — always shown */}
             <div style={S.totalRow}>
-              <span style={S.totalLabel}>Cart Total</span>
-              <span style={S.totalValue}>Rs.{cartTotal(results).toLocaleString('en-IN')}</span>
+              <span style={S.totalLabel}>
+                {cartOffer?.applied ? 'Subtotal (before cart offer)' : 'Cart Total'}
+              </span>
+              <span style={S.totalValue}>
+                Rs.{results.reduce((s, r) => s + r.finalPrice, 0).toLocaleString('en-IN')}
+              </span>
             </div>
+
+            {/* Cart offer row — only shown when it triggered */}
+            {cartOffer?.applied && (
+              <>
+                <div style={S.cartOfferRow}>
+                  <span style={S.cartOfferLabel}>{cartOffer.reasoning}</span>
+                  <span style={S.cartOfferValue}>
+                    −Rs.{cartOffer.discountAmount.toLocaleString('en-IN')}
+                  </span>
+                </div>
+
+                {/* Final total — only shown when cart offer applied */}
+                <div style={{ ...S.totalRow, borderTopColor: '#FF5800' }}>
+                  <span style={S.totalLabel}>Final Cart Total</span>
+                  <span style={{ ...S.totalValue, color: '#1e5c2c', fontSize: 18 }}>
+                    Rs.{cartOffer.finalCartTotal.toLocaleString('en-IN')}
+                  </span>
+                </div>
+              </>
+            )}
           </div>
         )}
 
