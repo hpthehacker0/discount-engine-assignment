@@ -5,10 +5,11 @@
  * Wires together CSV upload → parse → engine → display.
  */
 
-import { useState } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import CsvUploader from './components/CsvUploader.jsx'
 import DataTable from './components/DataTable.jsx'
 import ErrorBanner from './components/ErrorBanner.jsx'
+import NaturalLanguageInput from './components/NaturalLanguageInput.jsx'
 import { parseRulesCSV, parseCartCSV } from './engine/csvParser.js'
 import { processCart, applyCartDiscount } from './engine/discountEngine.js'
 
@@ -109,16 +110,34 @@ const S = {
 // ── Component ────────────────────────────────────────────────────
 
 export default function App() {
-  const [rules, setRules]           = useState([])
-  const [rulesErrors, setRulesErr]  = useState([])
-  const [rulesFileName, setRulesFileName] = useState('')
+  const [rules, setRules]                     = useState([])
+  const [rulesErrors, setRulesErr]            = useState([])
+  const [rulesFileName, setRulesFileName]     = useState('')
 
-  const [cartItems, setCartItems]   = useState([])
-  const [cartErrors, setCartErrors] = useState([])
-  const [cartFileName, setCartFileName]   = useState('')
+  const [cartItems, setCartItems]             = useState([])
+  const [cartErrors, setCartErrors]           = useState([])
+  const [cartFileName, setCartFileName]       = useState('')
 
-  const [results, setResults]       = useState(null)
-  const [cartOffer, setCartOffer]   = useState(null)
+  const [results, setResults]                 = useState(null)
+  const [cartOffer, setCartOffer]             = useState(null)
+
+  // ── Refs to always hold latest state for use inside callbacks ──
+  const rulesRef    = useRef(rules)
+  const cartRef     = useRef(cartItems)
+
+  useEffect(() => { rulesRef.current = rules },     [rules])
+  useEffect(() => { cartRef.current  = cartItems }, [cartItems])
+
+  // ── Core calculate — always reads from refs, never stale ──
+  function runEngine(overrideRules, overrideCart) {
+    const r = overrideRules ?? rulesRef.current
+    const c = overrideCart  ?? cartRef.current
+    if (r.length === 0 || c.length === 0) return
+    const res   = processCart(c, r)
+    const offer = applyCartDiscount(res, r)
+    setResults(res)
+    setCartOffer(offer)
+  }
 
   // ── Handlers ──
 
@@ -141,10 +160,15 @@ export default function App() {
   }
 
   function handleCalculate() {
-    const res = processCart(cartItems, rules)
-    const offer = applyCartDiscount(res, rules)
-    setResults(res)
-    setCartOffer(offer)
+    runEngine()
+  }
+
+  function handleRuleConfirmed(newRule) {
+    const updatedRules = [...rulesRef.current, newRule]
+    setRules(updatedRules)
+    if (cartRef.current.length > 0) {
+      runEngine(updatedRules, cartRef.current)
+    }
   }
 
   const canCalculate = rules.length > 0 && cartItems.length > 0
@@ -206,6 +230,9 @@ export default function App() {
           </div>
         </div>
 
+        {/* Natural language rule input */}
+        <NaturalLanguageInput onRuleConfirmed={handleRuleConfirmed} />
+
         {/* Calculate button */}
         <div style={{ textAlign: 'center', marginBottom: '1.2rem' }}>
           <button
@@ -228,7 +255,7 @@ export default function App() {
             <div style={S.sectionTitle}>Cart Summary</div>
             <DataTable columns={RESULTS_COLUMNS} rows={results} />
 
-{/* Subtotal row — always shown */}
+            {/* Subtotal row — always shown */}
             <div style={S.totalRow}>
               <span style={S.totalLabel}>
                 {cartOffer?.applied ? 'Subtotal (before cart offer)' : 'Cart Total'}
@@ -248,7 +275,7 @@ export default function App() {
                   </span>
                 </div>
 
-                {/* Final total — only shown when cart offer applied */}
+                {/* Final total */}
                 <div style={{ ...S.totalRow, borderTopColor: '#FF5800' }}>
                   <span style={S.totalLabel}>Final Cart Total</span>
                   <span style={{ ...S.totalValue, color: '#1e5c2c', fontSize: 18 }}>
