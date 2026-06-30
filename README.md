@@ -4,7 +4,7 @@ A customer-facing cart pricing engine that applies brand, platform, and cart-lev
 discount rules, picks the best deal for the customer, and shows a clear breakdown
 of what was applied and why.
 
-**Live demo:** https://YOUR-VERCEL-URL.vercel.app
+**Live demo:** https://discount-engine-assignment-five.vercel.app/
 
 ## Run locally
 
