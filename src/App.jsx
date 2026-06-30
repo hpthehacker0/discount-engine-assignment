@@ -7,6 +7,7 @@
 
 import { useState, useRef, useEffect } from 'react'
 import CsvUploader from './components/CsvUploader.jsx'
+import CartUploader from './components/CartUploader.jsx'
 import DataTable from './components/DataTable.jsx'
 import ErrorBanner from './components/ErrorBanner.jsx'
 import NaturalLanguageInput from './components/NaturalLanguageInput.jsx'
@@ -150,15 +151,25 @@ export default function App() {
     setCartOffer(null)
   }
 
-  function handleCartLoad(csvText, fileName) {
-    const { data, errors } = parseCartCSV(csvText)
-    setCartItems(data)
-    setCartErrors(errors)
+function handleCartLoad(items, fileName) {
+    setCartItems(items)
+    setCartErrors([])
     setCartFileName(fileName)
     setResults(null)
     setCartOffer(null)
+    // Auto re-run if rules already loaded
+    if (rulesRef.current.length > 0) {
+      runEngine(rulesRef.current, items)
+    }
   }
 
+  function handleCartError(errors) {
+    setCartErrors(errors)
+    setCartItems([])
+    setCartFileName('')
+    setResults(null)
+    setCartOffer(null)
+  }
   function handleCalculate() {
     runEngine()
   }
@@ -208,13 +219,12 @@ export default function App() {
             )}
           </div>
 
-          {/* Cart upload */}
+{/* Cart upload */}
           <div style={S.section}>
             <div style={S.sectionTitle}>Cart Items</div>
-            <CsvUploader
-              label="cart.csv"
-              description="Upload your cart CSV"
+            <CartUploader
               onLoad={handleCartLoad}
+              onError={handleCartError}
               hasData={cartItems.length > 0}
               fileName={cartFileName}
             />
